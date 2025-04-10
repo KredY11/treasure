@@ -58,6 +58,22 @@ void create_hunt_directory(char *hunt_id) {
     }
 }
 
+void log_operation(char *hunt_id, char *operation) {
+    char log_path[512];
+    snprintf(log_path, sizeof(log_path), "Hunt%s/logged_hunt", hunt_id);
+
+    int fd = open(log_path, O_WRONLY | O_APPEND);
+    if (fd == -1) {
+        perror("Failed to open log file");
+        return;
+    }
+
+    char log_entry[512];
+    time_t now = time(NULL);
+    snprintf(log_entry, sizeof(log_entry), "[%s] %s\n", ctime(&now), operation);
+    write(fd, log_entry, strlen(log_entry));
+    close(fd);
+}
 
 void add_treasure(char *hunt_id) {
     create_hunt_directory(hunt_id);
@@ -177,6 +193,73 @@ void view_treasure(char *hunt_id, char *treasure_id) {
 
     char log_msg[512];
     snprintf(log_msg, sizeof(log_msg), "view %s %s", hunt_id, treasure_id);
+    log_operation(hunt_id, log_msg);
+}
+
+void remove_treasure(char *hunt_id, char *treasure_id) {
+    char treasures_path[512];
+    snprintf(treasures_path, sizeof(treasures_path), "Hunt%s/treasures.bin", hunt_id);
+
+    int fd = open(treasures_path, O_RDWR);
+    if (fd == -1) {
+        perror("Failed to open treasures.bin");
+        return;
+    }
+
+    char temp_path[512];
+    snprintf(temp_path, sizeof(temp_path), "Hunt%s/temp.bin", hunt_id);
+    int temp_fd = open(temp_path, O_CREAT | O_RDWR, 0644);
+    if (temp_fd == -1) {
+        perror("Failed to create temp file");
+        close(fd);
+        return;
+    }
+
+    Treasure t;
+    int found = 0;
+    while (read(fd, &t, RECORD_SIZE) == RECORD_SIZE) {
+        if (strncmp(t.treasure_id, treasure_id, ID_SIZE) != 0) {
+            write(temp_fd, &t, RECORD_SIZE);
+        } else {
+            found = 1;
+        }
+    }
+    close(fd);
+    close(temp_fd);
+
+    if (!found) {
+        printf("Treasure %s not found in hunt %s.\n", treasure_id, hunt_id);
+        unlink(temp_path);
+        return;
+    }
+    unlink(treasures_path);
+    rename(temp_path, treasures_path);
+
+    char log_msg[512];
+    snprintf(log_msg, sizeof(log_msg), "remove_treasure %s %s", hunt_id, treasure_id);
+    log_operation(hunt_id, log_msg);
+}
+
+void remove_hunt(char *hunt_id) {
+    char hunt_dir[256];
+    snprintf(hunt_dir, sizeof(hunt_dir), "Hunt%s", hunt_id);
+
+    char treasures_path[512];
+    snprintf(treasures_path, sizeof(treasures_path), "%s/treasures.bin", hunt_dir);
+    unlink(treasures_path);
+
+    char log_path[512];
+    snprintf(log_path, sizeof(log_path), "%s/logged_hunt", hunt_dir);
+    unlink(log_path);
+
+    rmdir(hunt_dir);
+
+    char symlink_name[256];
+    snprintf(symlink_name, sizeof(symlink_name), "logged_hunt-%s", hunt_id);
+    unlink(symlink_name);
+
+    char log_msg[512];
+    snprintf(log_msg, sizeof(log_msg), "remove_hunt %s", hunt_id);
     log_operation(hunt_id, log_msg);
 }
 
